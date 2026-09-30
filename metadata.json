@@ -1,0 +1,6 @@
+{
+  "name": "StoryCast Audio",
+  "description": "Transform Word documents, Google Docs, and eBooks into rich audiobooks with 10 expressive natural voices, single-file downloads, and offline playback.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
