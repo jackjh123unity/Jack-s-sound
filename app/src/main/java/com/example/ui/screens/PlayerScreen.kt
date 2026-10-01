@@ -123,7 +123,7 @@ fun PlayerScreen(
                             color = AmberGlow
                         )
                         Text(
-                            text = if (playbackState.isSingleFileMode) "Complete Audiobook (1-File)" else "Chapter / Page ${playbackState.currentPageNumber}",
+                            text = if (playbackState.isSingleFileMode) "Complete Audiobook (1-File)" else "Chapter ${playbackState.currentPageNumber}",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -229,11 +229,15 @@ fun PlayerScreen(
                 }
             }
 
-            // Dynamic Audio Spectrum Visualizer
+            // Dynamic Audio Spectrum Visualizer (52-band logarithmic analyzer)
             AudioSpectrumVisualizer(
                 isPlaying = playbackState.isPlaying,
                 voiceName = selectedVoice.name,
                 accent = selectedVoice.accent,
+                emotionWarmth = selectedVoice.emotionWarmth,
+                prosodySota = selectedVoice.prosodySota,
+                dynamicEnergyDb = selectedVoice.dynamicEnergyDb,
+                streamingLatencyMs = selectedVoice.streamingLatencyMs,
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -414,7 +418,7 @@ fun PlayerScreen(
                             Icon(Icons.Default.Download, contentDescription = null, tint = GoldenAmberPrimary, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Ch. $pageNum",
+                                text = "Chapter $pageNum",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White

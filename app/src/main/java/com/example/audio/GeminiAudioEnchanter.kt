@@ -33,8 +33,20 @@ object GeminiAudioEnchanter {
         val preparedText = prepareForGeminiTts(text)
         if (preparedText.isBlank()) return@withContext null
 
-        // Try primary model: gemini-3.8-flash-tts, with fallback to gemini-3.8-flash-lite-tts
-        val models = listOf("gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts")
+        // Direct Voice Acting Directive: inject voice persona prompt as leading acting directive
+        val directActingPrompt = if (preparedText.startsWith("[")) {
+            preparedText
+        } else {
+            "[${voice.personaPrompt}] $preparedText"
+        }
+
+        // Try supported studio TTS models in order
+        val models = listOf(
+            "gemini-2.5-flash-preview-tts",
+            "gemini-3.8-flash-tts",
+            "gemini-3.8-flash-lite-tts",
+            "gemini-2.0-flash"
+        )
 
         for (modelName in models) {
             try {
@@ -52,12 +64,13 @@ object GeminiAudioEnchanter {
                         put(JSONObject().apply {
                             put("parts", JSONArray().apply {
                                 put(JSONObject().apply {
-                                    put("text", preparedText)
+                                    put("text", directActingPrompt)
                                 })
                             })
                         })
                     })
                     put("generationConfig", JSONObject().apply {
+                        put("temperature", 0.8) // Raising to 0.8 unlocks model's creative vocal range & emotional tags
                         put("responseModalities", JSONArray().apply {
                             put("AUDIO")
                         })
@@ -88,7 +101,11 @@ object GeminiAudioEnchanter {
                     val base64Data = inlineData?.optString("data")
 
                     if (!base64Data.isNullOrBlank()) {
-                        return@withContext Base64.decode(base64Data, Base64.DEFAULT)
+                        val decoded = Base64.decode(base64Data, Base64.DEFAULT)
+                        if (decoded.size >= 4 && decoded[0] == 'R'.code.toByte() && decoded[1] == 'I'.code.toByte() && decoded[2] == 'F'.code.toByte() && decoded[3] == 'F'.code.toByte()) {
+                            return@withContext decoded
+                        }
+                        return@withContext wrapPcmToWav(decoded, 24000, 1)
                     }
                 }
             } catch (e: Exception) {
@@ -96,6 +113,66 @@ object GeminiAudioEnchanter {
             }
         }
         return@withContext null
+    }
+
+    /**
+     * Wraps raw 16-bit PCM audio in a valid RIFF/WAV container so MediaPlayer can play it.
+     */
+    fun wrapPcmToWav(pcmData: ByteArray, sampleRate: Int = 24000, channels: Int = 1): ByteArray {
+        val totalAudioLen = pcmData.size.toLong()
+        val totalDataLen = totalAudioLen + 36
+        val byteRate = (sampleRate * channels * 16 / 8).toLong()
+
+        val header = ByteArray(44)
+        header[0] = 'R'.code.toByte()
+        header[1] = 'I'.code.toByte()
+        header[2] = 'F'.code.toByte()
+        header[3] = 'F'.code.toByte()
+        header[4] = (totalDataLen and 0xff).toByte()
+        header[5] = ((totalDataLen shr 8) and 0xff).toByte()
+        header[6] = ((totalDataLen shr 16) and 0xff).toByte()
+        header[7] = ((totalDataLen shr 24) and 0xff).toByte()
+        header[8] = 'W'.code.toByte()
+        header[9] = 'A'.code.toByte()
+        header[10] = 'V'.code.toByte()
+        header[11] = 'E'.code.toByte()
+        header[12] = 'f'.code.toByte()
+        header[13] = 'm'.code.toByte()
+        header[14] = 't'.code.toByte()
+        header[15] = ' '.code.toByte()
+        header[16] = 16
+        header[17] = 0
+        header[18] = 0
+        header[19] = 0
+        header[20] = 1 // PCM format
+        header[21] = 0
+        header[22] = channels.toByte()
+        header[23] = 0
+        header[24] = (sampleRate and 0xff).toByte()
+        header[25] = ((sampleRate shr 8) and 0xff).toByte()
+        header[26] = ((sampleRate shr 16) and 0xff).toByte()
+        header[27] = ((sampleRate shr 24) and 0xff).toByte()
+        header[28] = (byteRate and 0xff).toByte()
+        header[29] = ((byteRate shr 8) and 0xff).toByte()
+        header[30] = ((byteRate shr 16) and 0xff).toByte()
+        header[31] = ((byteRate shr 24) and 0xff).toByte()
+        header[32] = (channels * 16 / 8).toByte()
+        header[33] = 0
+        header[34] = 16
+        header[35] = 0
+        header[36] = 'd'.code.toByte()
+        header[37] = 'a'.code.toByte()
+        header[38] = 't'.code.toByte()
+        header[39] = 'a'.code.toByte()
+        header[40] = (totalAudioLen and 0xff).toByte()
+        header[41] = ((totalAudioLen shr 8) and 0xff).toByte()
+        header[42] = ((totalAudioLen shr 16) and 0xff).toByte()
+        header[43] = ((totalAudioLen shr 24) and 0xff).toByte()
+
+        val wavData = ByteArray(44 + pcmData.size)
+        System.arraycopy(header, 0, wavData, 0, 44)
+        System.arraycopy(pcmData, 0, wavData, 44, pcmData.size)
+        return wavData
     }
 
     /**

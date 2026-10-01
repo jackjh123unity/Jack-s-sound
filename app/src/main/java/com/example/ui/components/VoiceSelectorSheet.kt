@@ -403,7 +403,7 @@ fun VoiceSelectorSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Tabs: All (10) | Male (5) | Female (5)
+            // Tabs: All | Male | Female
             TabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = Color(0xFF131520),
@@ -415,7 +415,7 @@ fun VoiceSelectorSheet(
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("All (10)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) },
+                    text = { Text("All (${allVoices.size})", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) },
                     modifier = Modifier.testTag("tab_all_voices")
                 )
                 Tab(
@@ -425,7 +425,7 @@ fun VoiceSelectorSheet(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Male, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Male (5)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text("Male (${maleVoices.size})", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                         }
                     },
                     modifier = Modifier.testTag("tab_male_voices")
@@ -437,7 +437,7 @@ fun VoiceSelectorSheet(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Female, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Female (5)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text("Female (${femaleVoices.size})", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                         }
                     },
                     modifier = Modifier.testTag("tab_female_voices")
@@ -566,24 +566,42 @@ fun VoiceSelectorSheet(
                                         .padding(horizontal = 7.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        text = "Gemini 3.8: ${voice.geminiVoiceName}",
+                                        text = "Flash TTS: ${voice.geminiVoiceName}",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = if (voice.gender == VoiceGender.MALE) Color(0xFF7DD3FC) else Color(0xFFF9A8D4)
                                     )
                                 }
 
-                                voice.tags.forEach { tag ->
+                                // Telemetry badge
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFF1E293B))
+                                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "Warmth ${voice.emotionWarmth}% • ${voice.dynamicEnergyDb} dB",
+                                        fontSize = 10.sp,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF38BDF8)
+                                    )
+                                }
+
+                                voice.actingDirectives.take(2).forEach { directive ->
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
-                                            .background(Color(0xFF1E2130))
-                                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                                            .background(Color(0xFF24142C))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
                                         Text(
-                                            text = tag,
-                                            fontSize = 10.sp,
-                                            color = Color(0xFFA5B4FC)
+                                            text = directive,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                            color = Color(0xFFF472B6)
                                         )
                                     }
                                 }

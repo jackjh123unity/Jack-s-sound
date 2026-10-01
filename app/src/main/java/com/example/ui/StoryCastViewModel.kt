@@ -172,10 +172,14 @@ class StoryCastViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun selectVoice(voice: VoiceModel) {
+        val previousVoice = _selectedVoice.value
         _selectedVoice.value = voice
         _showVoiceSheet.value = false
         val bookId = _activeBookId.value ?: return
         viewModelScope.launch {
+            if (previousVoice.id != voice.id && playerManager.playbackState.value.isPlaying) {
+                playerManager.stop()
+            }
             repository.updateVoice(bookId, voice.id)
             _activeBook.value = repository.getBook(bookId)
         }
@@ -236,11 +240,17 @@ class StoryCastViewModel(application: Application) : AndroidViewModel(applicatio
             val pages = _activePages.value
             val targetPage = pages.firstOrNull { it.pageNumber == pageNum } ?: return@launch
 
-            // If audio file doesn't exist, synthesize it first
-            val audioPath = if (targetPage.isAudioGenerated && targetPage.audioFilePath != null && File(targetPage.audioFilePath).exists()) {
+            // Check if audio file matches currently selected voice
+            val expectedSuffix = "_${voiceId}.wav"
+            val hasValidAudio = targetPage.isAudioGenerated &&
+                    targetPage.audioFilePath != null &&
+                    targetPage.audioFilePath.endsWith(expectedSuffix) &&
+                    File(targetPage.audioFilePath).exists()
+
+            val audioPath = if (hasValidAudio) {
                 targetPage.audioFilePath
             } else {
-                _singleFileStatusText.value = "Generating natural audio for page $pageNum..."
+                _singleFileStatusText.value = "Generating natural audio for page $pageNum with ${_selectedVoice.value.name}..."
                 val genPage = repository.generatePageAudio(bookId, pageNum, voiceId, speed, pitch)
                 genPage?.audioFilePath
             }

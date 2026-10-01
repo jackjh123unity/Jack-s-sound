@@ -54,6 +54,7 @@ class BookRepository(
             PageEntity(
                 bookId = book1Id,
                 pageNumber = 1,
+                chapterTitle = "Chapter 1: The Sealed Gates",
                 rawText = """
                     The ancient stone gates had remained sealed for ten thousand years.
                     Beneath the crimson moon, frost crept slowly across the obsidian carvings.
@@ -72,6 +73,7 @@ class BookRepository(
             PageEntity(
                 bookId = book1Id,
                 pageNumber = 2,
+                chapterTitle = "Chapter 2: The Obsidian Corridor",
                 rawText = """
                     They stepped across the threshold, their lanterns carving arcs of amber light into the perpetual gloom.
                     The hallway stretched forward into impossible infinity. Upon the limestone walls, murals of long-vanished star-priests depicted the Great Fall.
@@ -91,6 +93,7 @@ class BookRepository(
             PageEntity(
                 bookId = book1Id,
                 pageNumber = 3,
+                chapterTitle = "Chapter 3: The Sentinel of the Mists",
                 rawText = """
                     "Do not draw your steel," Lyra commanded in an urgent whisper. "It does not hunt by sight."
                     The golden embers drifted downward, settling just above the stone flags. A sound like grinding millstones vibrated through Aaron's boots.
@@ -108,6 +111,7 @@ class BookRepository(
             PageEntity(
                 bookId = book1Id,
                 pageNumber = 4,
+                chapterTitle = "Chapter 4: The Sun-Beacon Flame",
                 rawText = """
                     "We seek only the ember to relight the Sun-Beacon of Valdora," Aaron declared, his voice echoing into the vaults.
                     The sentinel lingered in silence for three agonizing heartbeats. Then, the chamber filled with a radiant sapphire glow.
@@ -140,11 +144,12 @@ class BookRepository(
             PageEntity(
                 bookId = book2Id,
                 pageNumber = 1,
+                chapterTitle = "Chapter 1: Moonlight in the Vial",
                 rawText = """
                     Glass retorts bubbled in the dimly lit cellar beneath the apothecary.
                     In the vial before Corin, a droplet of liquid moonlight spun against the laws of gravity.
                     "If the guild masters discover this formula," Corin murmured, "they will brand it heresy."
-                    Yet outside his window, the bells of the cathedral tolled midnight, counting down the hours until the royal execution.
+                    Yet outside his window, the heavy bells of the cathedral tolled midnight, counting down the hours until the royal execution.
                 """.trimIndent(),
                 enchantedText = """
                     [velvety and mysterious] Glass retorts bubbled in the dimly lit cellar beneath the apothecary.
@@ -156,6 +161,7 @@ class BookRepository(
             PageEntity(
                 bookId = book2Id,
                 pageNumber = 2,
+                chapterTitle = "Chapter 2: The Silent Dagger",
                 rawText = """
                     He corked the phial and wrapped it in dark oiled silk.
                     Every cobblestone of the old town seemed damp with impending revolution. Cloaked figures slipped through the foggy alleys like specters.
@@ -172,6 +178,7 @@ class BookRepository(
             PageEntity(
                 bookId = book2Id,
                 pageNumber = 3,
+                chapterTitle = "Chapter 3: The Tyrant's Crown",
                 rawText = """
                     "It is done," Corin whispered back, unlatching the iron bolt.
                     The door swung open to reveal the Countess of Ravenscroft, her eyes gleaming with defiant triumph.
@@ -210,22 +217,22 @@ class BookRepository(
         val book = BookEntity(
             title = extracted.title,
             author = extracted.author,
-            totalPages = extracted.totalPages,
+            totalPages = extracted.totalChapters,
             coverImagePath = extracted.coverImagePath,
             selectedVoiceId = "male_arthur",
-            playbackSpeed = 1.0f
+            playbackSpeed = 1.0f,
+            currentPlayingPage = extracted.initialChapterNumber
         )
         val bookId = bookDao.insertBook(book)
 
-        val pages = extracted.pagesText.mapIndexed { idx, text ->
-            val pageNum = idx + 1
-            val words = text.split(Regex("\\s+")).filter { it.isNotBlank() }
+        val pages = extracted.chapters.map { chapter ->
             PageEntity(
                 bookId = bookId,
-                pageNumber = pageNum,
-                rawText = text,
-                enchantedText = GeminiAudioEnchanter.heuristicEnchant(text, VoiceCatalog.getById("male_arthur")),
-                wordCount = words.size
+                pageNumber = chapter.chapterNumber,
+                chapterTitle = chapter.title,
+                rawText = chapter.content,
+                enchantedText = GeminiAudioEnchanter.heuristicEnchant(chapter.content, VoiceCatalog.getById("male_arthur")),
+                wordCount = chapter.wordCount
             )
         }
         bookDao.insertPages(pages)
@@ -281,16 +288,26 @@ class BookRepository(
         val page = bookDao.getPageByNumber(bookId, pageNumber) ?: return@withContext null
         val voice = VoiceCatalog.getById(voiceId)
 
-        onProgress(0.15f, "Preparing Chapter $pageNumber with ${voice.name}...")
+        val chLabel = page.chapterTitle.ifBlank { "Chapter $pageNumber" }
+        onProgress(0.15f, "Preparing $chLabel with ${voice.name}...")
 
         val audioDir = File(context.filesDir, "audiobooks/book_$bookId")
         audioDir.mkdirs()
         val pageAudioFile = File(audioDir, "Chapter_${pageNumber}_${voice.id}.wav")
 
-        val scriptText = page.enchantedText?.takeIf { it.isNotBlank() }
-            ?: GeminiAudioEnchanter.heuristicEnchant(page.rawText, voice)
+        // Announce book title and author for Chapter 1
+        val isChapter1 = pageNumber == 1 ||
+                page.chapterTitle.contains("chapter 1", ignoreCase = true) ||
+                page.chapterTitle.contains("chapter i", ignoreCase = true) ||
+                page.chapterTitle.contains("chapter one", ignoreCase = true)
 
-        onProgress(0.40f, "Synthesizing Chapter $pageNumber voice audio...")
+        val scriptText = if (isChapter1) {
+            "${book.title}, by ${book.author}.\n\n$chLabel.\n\n${page.rawText}"
+        } else {
+            "${book.title} - $chLabel.\n\n${page.rawText}"
+        }
+
+        onProgress(0.35f, "Synthesizing $chLabel voice audio...")
         val success = synthesizer.synthesizePageToFile(scriptText, pageAudioFile, voice, speed, pitch)
 
         if (success && pageAudioFile.exists()) {
@@ -303,11 +320,12 @@ class BookRepository(
             bookDao.updatePage(updatedPage)
 
             onProgress(0.85f, "Exporting to device audio storage...")
-            val safeBookTitle = book.title.replace(Regex("[^a-zA-Z0-9_-]"), " ").trim()
-            val exportName = "${safeBookTitle} - Chapter $pageNumber (${voice.name})"
+            val safeBookTitle = book.title.replace(Regex("[^a-zA-Z0-9_ -]"), " ").trim()
+            val safeChTitle = chLabel.replace(Regex("[^a-zA-Z0-9_ -]"), " ").trim()
+            val exportName = "${safeBookTitle} - $safeChTitle (${voice.name})"
             AudioExportUtil.exportToPublicMusic(context, pageAudioFile, exportName)
 
-            onProgress(1.0f, "Chapter $pageNumber downloaded successfully!")
+            onProgress(1.0f, "$chLabel downloaded successfully!")
             pageAudioFile
         } else {
             null
@@ -315,7 +333,7 @@ class BookRepository(
     }
 
     /**
-     * Synthesizes audio for a single page and stores it in app internal storage.
+     * Synthesizes audio for a single chapter and stores it in app internal storage.
      */
     suspend fun generatePageAudio(
         bookId: Long,
@@ -324,14 +342,26 @@ class BookRepository(
         speed: Float,
         pitch: Float = 1.0f
     ): PageEntity? = withContext(Dispatchers.IO) {
+        val book = bookDao.getBookById(bookId) ?: return@withContext null
         val page = bookDao.getPageByNumber(bookId, pageNumber) ?: return@withContext null
         val voice = VoiceCatalog.getById(voiceId)
 
         val audioDir = File(context.filesDir, "audiobooks/book_$bookId")
         audioDir.mkdirs()
-        val outputFile = File(audioDir, "page_${pageNumber}_${voice.id}.wav")
+        val outputFile = File(audioDir, "chapter_${pageNumber}_${voice.id}.wav")
 
-        val scriptText = page.enchantedText?.takeIf { it.isNotBlank() } ?: page.rawText
+        val chLabel = page.chapterTitle.ifBlank { "Chapter $pageNumber" }
+        val isChapter1 = pageNumber == 1 ||
+                page.chapterTitle.contains("chapter 1", ignoreCase = true) ||
+                page.chapterTitle.contains("chapter i", ignoreCase = true) ||
+                page.chapterTitle.contains("chapter one", ignoreCase = true)
+
+        val scriptText = if (isChapter1) {
+            "${book.title}, by ${book.author}.\n\n$chLabel.\n\n${page.rawText}"
+        } else {
+            "$chLabel.\n\n${page.rawText}"
+        }
+
         val success = synthesizer.synthesizePageToFile(scriptText, outputFile, voice, speed, pitch)
 
         if (success && outputFile.exists()) {
@@ -349,8 +379,7 @@ class BookRepository(
     }
 
     /**
-     * Fulfills: "Make it so I can download every page as audio in a single file".
-     * Synthesizes all pages sequentially and stitches them into a unified complete audiobook file.
+     * Synthesizes every chapter in audio and merges them into one single continuous file.
      */
     suspend fun generateSingleFileAudiobook(
         bookId: Long,
@@ -368,36 +397,41 @@ class BookRepository(
 
         for ((index, page) in pages.withIndex()) {
             val pageNum = page.pageNumber
-            onProgress(pageNum, pages.size, "Synthesizing page $pageNum of ${pages.size} (${voice.name})...")
+            val chLabel = page.chapterTitle.ifBlank { "Chapter $pageNum" }
+            onProgress(index, pages.size, "Synthesizing $chLabel of ${pages.size} (${voice.name})...")
 
             val audioDir = File(context.filesDir, "audiobooks/book_$bookId")
             audioDir.mkdirs()
-            val pageAudioFile = File(audioDir, "page_${pageNum}_${voice.id}.wav")
+            val pageAudioFile = File(audioDir, "chapter_${pageNum}_${voice.id}.wav")
 
-            if (!pageAudioFile.exists() || pageAudioFile.length() < 100) {
-                val script = page.enchantedText ?: GeminiAudioEnchanter.heuristicEnchant(page.rawText, voice)
-                val success = synthesizer.synthesizePageToFile(script, pageAudioFile, voice, speed, pitch)
-                if (success && pageAudioFile.exists()) {
-                    val duration = getAudioDurationMs(pageAudioFile)
-                    bookDao.updatePage(
-                        page.copy(
-                            audioFilePath = pageAudioFile.absolutePath,
-                            audioDurationMs = duration,
-                            isAudioGenerated = true
-                        )
-                    )
-                }
-                delay(600)
+            val isChapter1 = index == 0 || pageNum == 1 ||
+                    page.chapterTitle.contains("chapter 1", ignoreCase = true) ||
+                    page.chapterTitle.contains("chapter i", ignoreCase = true) ||
+                    page.chapterTitle.contains("chapter one", ignoreCase = true)
+
+            val script = if (isChapter1 && index == 0) {
+                "${book.title}, by ${book.author}.\n\n$chLabel.\n\n${page.rawText}"
+            } else {
+                "$chLabel.\n\n${page.rawText}"
             }
 
-            if (pageAudioFile.exists()) {
+            val success = synthesizer.synthesizePageToFile(script, pageAudioFile, voice, speed, pitch)
+            if (success && pageAudioFile.exists()) {
+                val duration = getAudioDurationMs(pageAudioFile)
+                bookDao.updatePage(
+                    page.copy(
+                        audioFilePath = pageAudioFile.absolutePath,
+                        audioDurationMs = duration,
+                        isAudioGenerated = true
+                    )
+                )
                 generatedWavFiles.add(pageAudioFile)
             }
         }
 
         if (generatedWavFiles.isEmpty()) return@withContext null
 
-        onProgress(pages.size, pages.size, "Merging all ${generatedWavFiles.size} pages into single audiobook file...")
+        onProgress(pages.size, pages.size, "Merging all ${generatedWavFiles.size} chapters into 1 single file...")
 
         // Destination for complete single audio file
         val outputDir = File(context.filesDir, "audiobooks/downloads")
@@ -419,7 +453,7 @@ class BookRepository(
             )
 
             // Export to device public music
-            val safeBookTitle = book.title.replace(Regex("[^a-zA-Z0-9_-]"), " ").trim()
+            val safeBookTitle = book.title.replace(Regex("[^a-zA-Z0-9_ -]"), " ").trim()
             val exportName = "${safeBookTitle} - Complete Audiobook (${voice.name})"
             AudioExportUtil.exportToPublicMusic(context, finalSingleAudioFile, exportName)
 

@@ -13,6 +13,7 @@ data class PageEntity(
     val id: Long = 0,
     val bookId: Long,
     val pageNumber: Int,
+    val chapterTitle: String = "",
     val rawText: String,
     val enchantedText: String? = null,
     val audioFilePath: String? = null,

@@ -27,6 +27,13 @@ class AudiobookSynthesizer(private val context: Context) {
     private var previewPlayer: MediaPlayer? = null
 
     init {
+        try {
+            val previewDir = File(context.cacheDir, "voice_previews")
+            if (previewDir.exists()) {
+                previewDir.deleteRecursively()
+            }
+        } catch (e: Exception) {}
+
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 tts?.language = Locale.US
@@ -58,42 +65,47 @@ class AudiobookSynthesizer(private val context: Context) {
         val effectiveSpeed = (voice.baseSpeed * userSpeedMultiplier).coerceIn(0.5f, 2.5f)
         engine.setSpeechRate(effectiveSpeed)
 
-        // Strict masculine / feminine pitch enforcement for Android TTS fallback with custom user pitch
+        // Strict masculine / feminine pitch enforcement:
+        // Male pitch range is locked to deep resonant baritone/bass (0.45f .. 0.68f)
+        // Female pitch range is locked to melodic feminine frequencies (0.90f .. 1.50f)
         val tunedPitch = voice.basePitch * userPitchMultiplier
         if (voice.gender == VoiceGender.MALE) {
-            engine.setPitch(tunedPitch.coerceIn(0.5f, 0.95f))
+            engine.setPitch(tunedPitch.coerceIn(0.45f, 0.68f))
         } else {
-            engine.setPitch(tunedPitch.coerceIn(0.85f, 2.0f))
+            engine.setPitch(tunedPitch.coerceIn(0.90f, 1.50f))
         }
 
-        // Attempt to find best matching voice on device
+        // Attempt to find best matching voice on device (Google TTS, Samsung, or system TTS)
         try {
             val availableVoices = engine.voices
             if (!availableVoices.isNullOrEmpty()) {
-                val matched = availableVoices.firstOrNull { sysVoice ->
-                    val voiceName = sysVoice.name.lowercase()
-                    val isTargetGender = when (voice.gender) {
-                        VoiceGender.FEMALE ->
-                            (voiceName.contains("female") || voiceName.contains("woman") || voiceName.contains("-f-") || voiceName.contains("_f_")) &&
-                                    !voiceName.contains("male")
-                        VoiceGender.MALE ->
-                            (voiceName.contains("male") || voiceName.contains("man") || voiceName.contains("-m-") || voiceName.contains("_m_") || voiceName.contains("guy")) &&
-                                    !voiceName.contains("female")
+                val englishVoices = availableVoices.filter { it.locale.language.equals("en", ignoreCase = true) }
+                val pool = if (englishVoices.isNotEmpty()) englishVoices else availableVoices.toList()
+
+                val targetCountry = when {
+                    voice.accent.contains("British", ignoreCase = true) || voice.accent.contains("Scottish", ignoreCase = true) -> "GB"
+                    voice.accent.contains("Irish", ignoreCase = true) -> "IE"
+                    else -> "US"
+                }
+
+                // 1. First priority: match target gender and matching country accent
+                var matched = pool.firstOrNull { sysVoice ->
+                    isVoiceMatchingGender(sysVoice, voice.gender) && sysVoice.locale.country.equals(targetCountry, ignoreCase = true)
+                }
+
+                // 2. Second priority: match target gender in any English locale
+                if (matched == null) {
+                    matched = pool.firstOrNull { sysVoice ->
+                        isVoiceMatchingGender(sysVoice, voice.gender)
                     }
-                    val isEnglish = sysVoice.locale.language == "en"
-                    val isTargetAccent = when {
-                        voice.accent.contains("British", ignoreCase = true) -> sysVoice.locale.country == "GB"
-                        voice.accent.contains("Scottish", ignoreCase = true) -> sysVoice.locale.country == "GB"
-                        voice.accent.contains("Irish", ignoreCase = true) -> sysVoice.locale.country == "IE"
-                        else -> sysVoice.locale.country == "US"
-                    }
-                    isEnglish && isTargetGender && (isTargetAccent || sysVoice.locale.country == "US")
-                } ?: availableVoices.firstOrNull { sysVoice ->
-                    val voiceName = sysVoice.name.lowercase()
-                    when (voice.gender) {
-                        VoiceGender.FEMALE -> voiceName.contains("female") || voiceName.contains("-f-")
-                        VoiceGender.MALE -> (voiceName.contains("male") || voiceName.contains("-m-")) && !voiceName.contains("female")
-                    }
+                }
+
+                // 3. For male voices: if no voice is explicitly tagged male, but multiple voices exist,
+                // pick a voice that is NOT female (or second variant) to avoid the default female voice
+                if (matched == null && voice.gender == VoiceGender.MALE && pool.size > 1) {
+                    matched = pool.firstOrNull { sysVoice ->
+                        !isVoiceMatchingGender(sysVoice, VoiceGender.FEMALE)
+                    } ?: pool.getOrNull(1)
                 }
 
                 if (matched != null) {
@@ -102,6 +114,68 @@ class AudiobookSynthesizer(private val context: Context) {
             }
         } catch (e: Exception) {
             // Ignore voice selection failure, defaults will apply
+        }
+    }
+
+    private fun isVoiceMatchingGender(sysVoice: Voice, targetGender: VoiceGender): Boolean {
+        val name = sysVoice.name.lowercase(Locale.ROOT)
+
+        // Check features
+        val features = sysVoice.features
+        if (features != null) {
+            for (f in features) {
+                val fl = f.lowercase(Locale.ROOT)
+                if (targetGender == VoiceGender.MALE) {
+                    if (fl == "male" || fl.contains("gender=male") || fl.contains("gender:male")) return true
+                    if (fl == "female" || fl.contains("gender=female") || fl.contains("gender:female")) return false
+                } else {
+                    if (fl == "female" || fl.contains("gender=female") || fl.contains("gender:female")) return true
+                    if (fl == "male" || fl.contains("gender=male") || fl.contains("gender:male")) return false
+                }
+            }
+        }
+
+        val isFemale = name.contains("female") ||
+                name.contains("woman") ||
+                name.contains("#female") ||
+                name.contains("-female") ||
+                name.contains("_female") ||
+                name.contains("-f-") ||
+                name.contains("_f_") ||
+                name.contains("-sfg") ||
+                name.contains("-tpd") ||
+                name.contains("-fis") ||
+                name.contains("-gba") ||
+                name.contains("-afh") ||
+                name.contains("-cnd") ||
+                Regex("(^|[-_])(sf|f[0-9]{2})([-_]|$)").containsMatchIn(name)
+
+        val isMale = !isFemale && (
+                name.contains("#male") ||
+                name.contains("-male") ||
+                name.contains("_male") ||
+                name.contains(":male") ||
+                name.contains("/male") ||
+                name.contains("-m-") ||
+                name.contains("_m_") ||
+                name.contains("man") ||
+                name.contains("guy") ||
+                name.contains("-iom") ||
+                name.contains("-iob") ||
+                name.contains("-iol") ||
+                name.contains("-iod") ||
+                name.contains("-ioe") ||
+                name.contains("-rjs") ||
+                name.contains("-gbb") ||
+                name.contains("-aub") ||
+                name.contains("-cxx") ||
+                Regex("(^|[-_])(sm|m[0-9]{2})([-_]|$)").containsMatchIn(name) ||
+                (name.contains("male") && !name.contains("female"))
+        )
+
+        return when (targetGender) {
+            VoiceGender.MALE -> isMale
+            VoiceGender.FEMALE -> isFemale
         }
     }
 
@@ -188,7 +262,7 @@ class AudiobookSynthesizer(private val context: Context) {
     ) = withContext(Dispatchers.IO) {
         val previewDir = File(context.cacheDir, "voice_previews")
         previewDir.mkdirs()
-        val previewFile = File(previewDir, "preview_${voice.id}.wav")
+        val previewFile = File(previewDir, "preview_v2_${voice.id}.wav")
 
         if (!previewFile.exists() || previewFile.length() < 200) {
             if (GeminiAudioEnchanter.isGeminiAvailable()) {
@@ -236,8 +310,9 @@ class AudiobookSynthesizer(private val context: Context) {
             awaitInitialization()
             val engine = tts ?: return@withContext
             withContext(Dispatchers.Main) {
+                stopSpeaking()
                 configureVoice(voice, speed, pitch)
-                val utteranceId = "preview_${voice.id}"
+                val utteranceId = "preview_${voice.id}_${System.currentTimeMillis()}"
                 engine.speak(voice.previewQuote, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
             }
         }

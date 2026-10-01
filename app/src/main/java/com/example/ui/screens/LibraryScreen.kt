@@ -397,7 +397,7 @@ fun LibraryScreen(
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
                                             Text(
-                                                text = "${book.totalPages} Pages",
+                                                text = "${book.totalPages} Chapters",
                                                 fontSize = 11.sp,
                                                 color = MysticPurpleSecondary
                                             )

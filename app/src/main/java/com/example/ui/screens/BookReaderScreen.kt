@@ -128,10 +128,17 @@ fun BookReaderScreen(
                             color = Color.White,
                             maxLines = 1
                         )
+                        val chSubtitle = currentPage?.chapterTitle?.takeIf { it.isNotBlank() }
                         Text(
-                            text = "Page $currentPageNum of ${book?.totalPages ?: pages.size}",
+                            text = if (chSubtitle != null) {
+                                "Chapter $currentPageNum of ${book?.totalPages ?: pages.size} • $chSubtitle"
+                            } else {
+                                "Chapter $currentPageNum of ${book?.totalPages ?: pages.size}"
+                            },
                             fontSize = 11.sp,
-                            color = AmberGlow
+                            color = AmberGlow,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
                 },
@@ -401,7 +408,7 @@ fun BookReaderScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Download Ch. $currentPageNum",
+                            text = "Download Chapter $currentPageNum",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1
@@ -446,7 +453,7 @@ fun BookReaderScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
             )
 
-            // Page Pager Navigation Bar
+            // Chapter Navigation Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -459,17 +466,17 @@ fun BookReaderScreen(
                         if (currentPageNum > 1) onPageSelected(currentPageNum - 1)
                     },
                     enabled = currentPageNum > 1,
-                    modifier = Modifier.testTag("btn_prev_page")
+                    modifier = Modifier.testTag("btn_prev_chapter")
                 ) {
                     Icon(
                         Icons.Default.ChevronLeft,
-                        contentDescription = "Previous Page",
+                        contentDescription = "Previous Chapter",
                         tint = if (currentPageNum > 1) Color.White else Color(0xFF475569)
                     )
                 }
 
                 Text(
-                    text = "Page $currentPageNum / ${pages.size}",
+                    text = "Chapter $currentPageNum / ${pages.size}",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White
@@ -480,11 +487,11 @@ fun BookReaderScreen(
                         if (currentPageNum < pages.size) onPageSelected(currentPageNum + 1)
                     },
                     enabled = currentPageNum < pages.size,
-                    modifier = Modifier.testTag("btn_next_page")
+                    modifier = Modifier.testTag("btn_next_chapter")
                 ) {
                     Icon(
                         Icons.Default.ChevronRight,
-                        contentDescription = "Next Page",
+                        contentDescription = "Next Chapter",
                         tint = if (currentPageNum < pages.size) Color.White else Color(0xFF475569)
                     )
                 }
@@ -633,15 +640,18 @@ fun BookReaderScreen(
 
                         Spacer(modifier = Modifier.width(12.dp))
 
+                        val currentChTitle = currentPage?.chapterTitle?.takeIf { it.isNotBlank() } ?: "Chapter $currentPageNum"
                         Column {
                             Text(
-                                text = if (isCurrentPagePlaying) "Playing Page $currentPageNum" else "Listen to Page $currentPageNum",
+                                text = if (isCurrentPagePlaying) "Playing $currentChTitle" else "Listen to $currentChTitle",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "${selectedVoice.name} • Natural Spoken Audio",
+                                text = "Read aloud by ${selectedVoice.name} • Natural Spoken Audio",
                                 fontSize = 11.sp,
                                 color = Color(0xFF94A3B8)
                             )
